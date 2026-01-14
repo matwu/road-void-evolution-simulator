@@ -1,0 +1,52 @@
+# gprMax simulation configuration
+
+# Output directory
+output_dir: data/simulations
+
+# Road structure (top to bottom)
+road:
+  # Asphalt layers
+  surface_asphalt_thickness: 0.04    # Surface asphalt thickness (m)
+  base_asphalt_thickness: 0.06       # Base asphalt thickness (m)
+  # Subbase layers
+  upper_subbase_thickness: 0.15      # Upper subbase thickness (m) - crushed stone/stabilized
+  lower_subbase_thickness: 0.20      # Lower subbase thickness (m) - crushed stone
+  # Subgrade layer
+  subgrade_thickness: 0.10           # Subgrade thickness (m)
+  # Total: 1.45m road structure total thickness (m)
+
+# GPR settings
+gpr:
+  frequency: 600            # Center frequency (MHz) - adjusted to 600MHz to meet wavelength sampling requirements
+  time_window: 2000         # Time window (ns)
+  spatial_resolution: 0.005  # Spatial resolution (m) - 5mm (to reliably meet wavelength sampling requirements)
+
+# Void parameters
+void:
+  initial_depth_range: [0.5, 1.4]    # Initial depth range (m)
+  initial_size_x_range: [0.3, 0.6]   # Initial X-direction size range (m)
+  initial_size_y_range: [0.3, 0.6]   # Initial Y-direction size range (m)
+  initial_size_z_range: [0.1, 0.3]   # Initial Z-direction size range (m)
+  growth_rate_range: [1.5, 3.0]      # Growth rate range
+  upward_movement_range: [0.5, 1.2]  # Upward movement range (m)
+
+# Data generation
+generation:
+  num_sequences: 1         # Number of sequences to generate
+  stages_per_sequence: 2   # Number of stages per sequence (time points)
+
+# Material permittivity (relative permittivity εr)
+materials:
+  air: 1.0                  # Air
+  surface_asphalt: 8.0      # Surface asphalt
+  base_asphalt: 7.0         # Base asphalt
+  upper_subbase: 5.0        # Upper subbase (crushed stone/stabilized)
+  lower_subbase: 4.5        # Lower subbase (crushed stone)
+  subgrade: 9.0             # Subgrade (native soil)
+  void: 1.0                 # Void (air)
+
+# Domain settings
+domain:
+  size_x: 1.0               # X-direction size (m)
+  size_y: 1.0               # Y-direction size (m)
+  size_z: 1.5               # Z-direction size (m)

@@ -1,0 +1,29 @@
+# Basic scientific computing libraries
+numpy>=1.21.0
+scipy>=1.7.0
+matplotlib>=3.4.0
+
+# Dependencies needed for gprMax build
+cython>=0.29.0
+h5py>=3.1.0
+
+# System utilities
+psutil>=5.8.0
+colorama>=0.4.4
+terminaltables>=3.1.0
+tqdm>=4.62.0
+
+# Configuration file processing
+PyYAML>=5.4.0
+
+# Jupyter-related (may be required by gprMax's setup.py)
+jupyter>=1.0.0
+notebook>=6.4.0
+ipython>=7.16.0
+
+# GPU support (optional)
+# Note: pycuda requires CUDA Toolkit and NVIDIA GPU
+# Typically not available on ARM64 architecture
+# Handled individually in Dockerfile to continue even if installation fails
+# Use environment markers to skip on ARM64
+pycuda>=2022.2.2; platform_machine != "aarch64" and platform_machine != "arm64"

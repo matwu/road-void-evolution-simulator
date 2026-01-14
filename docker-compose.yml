@@ -1,0 +1,26 @@
+services:
+  gprmax:
+    build: .
+    container_name: gprmax_container
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./scripts:/app/scripts
+      - ./src:/app/src
+    environment:
+      - PYTHONUNBUFFERED=1
+    # GPU support (when using NVIDIA GPU)
+    # Requirements: nvidia-docker or nvidia-container-toolkit before docker-compose up
+    # Note: NVIDIA GPU is typically not available on ARM64 architecture
+    # To use GPU, uncomment the following lines:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    command: /bin/bash
