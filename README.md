@@ -37,7 +37,7 @@ docker-compose build
 docker-compose up -d
 
 # Enter container
-docker-compose exec gprmax /bin/bash
+docker-compose exec road-void-evolution-simulator /bin/bash
 ```
 
 ## Usage
@@ -67,5 +67,3 @@ python src/visualization/plot_gpr_output.py \
     --mode all \
     --output data/simulations/plots
 ```
-
-For details, see `SETUP_GUIDE.md`.

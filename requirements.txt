@@ -20,10 +20,3 @@ PyYAML>=5.4.0
 jupyter>=1.0.0
 notebook>=6.4.0
 ipython>=7.16.0
-
-# GPU support (optional)
-# Note: pycuda requires CUDA Toolkit and NVIDIA GPU
-# Typically not available on ARM64 architecture
-# Handled individually in Dockerfile to continue even if installation fails
-# Use environment markers to skip on ARM64
-pycuda>=2022.2.2; platform_machine != "aarch64" and platform_machine != "arm64"

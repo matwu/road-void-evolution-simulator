@@ -8,7 +8,7 @@ docker-compose build
 docker-compose up -d
 
 # Enter container
-docker-compose exec gprmax-docker /bin/bash
+docker-compose exec road-void-evolution-simulator /bin/bash
 ```
 
 ## Data Generation Flow
@@ -72,7 +72,7 @@ python src/visualization/plot_gpr_output.py \
     data/simulations/seq_0000_stage_00.out \
     --mode ascan \
     --component Ez \
-    --output plots/ascan.png
+    --output outputs/ascan.png
 ```
 
 #### B-scan
@@ -82,7 +82,7 @@ python src/visualization/plot_gpr_output.py \
     data/simulations \
     --mode bscan \
     --component Ez \
-    --output plots/bscan.png
+    --output outputs/bscan.png
 ```
 
 ## Configuration Customization

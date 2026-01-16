@@ -19,6 +19,7 @@ class VoidEvolutionSimulator:
 
         # Road structure parameters
         road = config['road']
+        self.air_thickness = road['air_thickness']
         self.surface_asphalt_thickness = road['surface_asphalt_thickness']
         self.base_asphalt_thickness = road['base_asphalt_thickness']
         self.upper_subbase_thickness = road['upper_subbase_thickness']
@@ -30,14 +31,21 @@ class VoidEvolutionSimulator:
         self.time_window = config['gpr']['time_window']  # Time window (ns)
         self.spatial_resolution = config['gpr']['spatial_resolution']  # Spatial resolution (m)
 
-        # Void parameter ranges
+        # B-scan parameters
+        self.num_traces = config['gpr'].get('num_traces', 50)  # Number of B-scan traces
+        self.scan_start_x_ratio = config['gpr'].get('scan_start_x_ratio', 0.1)  # Start position ratio (0-1)
+        self.scan_end_x_ratio = config['gpr'].get('scan_end_x_ratio', 0.9)  # End position ratio (0-1)
+
+        # Void parameter ranges (all ratios 0-1)
         void = config['void']
-        self.void_initial_depth_range = void['initial_depth_range']
-        self.void_initial_size_x_range = void['initial_size_x_range']
-        self.void_initial_size_y_range = void['initial_size_y_range']
-        self.void_initial_size_z_range = void['initial_size_z_range']
+        self.void_initial_x_position_range = void['initial_x_position_range']
+        self.void_initial_y_position_range = void['initial_y_position_range']
+        self.void_initial_depth_ratio_range = void['initial_depth_ratio_range']
+        self.void_initial_size_x_ratio_range = void['initial_size_x_ratio_range']
+        self.void_initial_size_y_ratio_range = void['initial_size_y_ratio_range']
+        self.void_initial_size_z_ratio_range = void['initial_size_z_ratio_range']
         self.void_growth_rate_range = void['growth_rate_range']
-        self.void_upward_movement_range = void['upward_movement_range']
+        self.void_upward_movement_ratio_range = void['upward_movement_ratio_range']
 
         # Materials
         self.materials = config['materials']
@@ -46,7 +54,13 @@ class VoidEvolutionSimulator:
         domain = config['domain']
         self.domain_x = domain['size_x']
         self.domain_y = domain['size_y']
-        self.domain_z = domain['size_z']
+        # Calculate domain_z from road layer thicknesses
+        self.domain_z = (self.air_thickness +
+                        self.surface_asphalt_thickness +
+                        self.base_asphalt_thickness +
+                        self.upper_subbase_thickness +
+                        self.lower_subbase_thickness +
+                        self.subgrade_thickness)
 
     def generate_void_parameters(self, stage: int, total_stages: int, sequence_seed: int = None) -> Dict:
         """
@@ -58,7 +72,7 @@ class VoidEvolutionSimulator:
             sequence_seed: Seed to fix initial values per sequence
 
         Returns:
-            Void parameter dictionary
+            Void parameter dictionary with absolute coordinates
         """
         # Progress (0.0 ~ 1.0)
         progress = stage / (total_stages - 1) if total_stages > 1 else 0
@@ -67,38 +81,52 @@ class VoidEvolutionSimulator:
         if sequence_seed is not None and stage == 0:
             np.random.seed(sequence_seed)
 
-        # Initial position and size (get range from config)
+        # Calculate road depth (excluding air layer)
+        road_depth = self.domain_z - self.air_thickness
+
+        # Initial position and size ratios (get range from config)
         if stage == 0:
-            # For stage 0, generate new initial values
-            self._initial_depth = np.random.uniform(*self.void_initial_depth_range)
-            self._initial_x_size = np.random.uniform(*self.void_initial_size_x_range)
-            self._initial_y_size = np.random.uniform(*self.void_initial_size_y_range)
-            self._initial_z_size = np.random.uniform(*self.void_initial_size_z_range)
+            # For stage 0, generate new initial values as ratios
+            self._initial_x_position_ratio = np.random.uniform(*self.void_initial_x_position_range)
+            self._initial_y_position_ratio = np.random.uniform(*self.void_initial_y_position_range)
+            self._initial_depth_ratio = np.random.uniform(*self.void_initial_depth_ratio_range)
+            self._initial_size_x_ratio = np.random.uniform(*self.void_initial_size_x_ratio_range)
+            self._initial_size_y_ratio = np.random.uniform(*self.void_initial_size_y_ratio_range)
+            self._initial_size_z_ratio = np.random.uniform(*self.void_initial_size_z_ratio_range)
             self._max_growth_rate = np.random.uniform(*self.void_growth_rate_range)
-            self._max_upward_movement = np.random.uniform(*self.void_upward_movement_range)
-            self._center_x = np.random.uniform(0.1, self.domain_x - 0.1)
-            self._center_y = np.random.uniform(0.1, self.domain_y - 0.1)
+            self._max_upward_movement_ratio = np.random.uniform(*self.void_upward_movement_ratio_range)
 
         # Growth rate (simulate non-linear growth)
         growth_rate = 1.0 + progress ** 1.5 * (self._max_growth_rate - 1.0)
 
-        # Upward movement (rising toward surface)
-        upward_movement = progress * self._max_upward_movement
+        # Upward movement as ratio of initial depth
+        upward_movement_ratio = progress * self._max_upward_movement_ratio
+
+        # Convert ratios to absolute coordinates
+        center_x = self._initial_x_position_ratio * self.domain_x
+        center_y = self._initial_y_position_ratio * self.domain_y
+        initial_depth = self._initial_depth_ratio * road_depth
+        upward_movement = upward_movement_ratio * initial_depth
+        center_z = initial_depth - upward_movement  # Rising toward surface
+
+        size_x = self._initial_size_x_ratio * self.domain_x * growth_rate
+        size_y = self._initial_size_y_ratio * self.domain_y * growth_rate
+        size_z = self._initial_size_z_ratio * road_depth * growth_rate ** 0.8
 
         return {
-            'center_x': self._center_x,
-            'center_y': self._center_y,
-            'center_z': self._initial_depth - upward_movement,  # Rising
-            'size_x': self._initial_x_size * growth_rate,  # x-direction growth
-            'size_y': self._initial_y_size * growth_rate,  # y-direction growth
-            'size_z': self._initial_z_size * growth_rate ** 0.8,  # z-direction grows more slowly
+            'center_x': center_x,
+            'center_y': center_y,
+            'center_z': center_z,
+            'size_x': size_x,
+            'size_y': size_y,
+            'size_z': size_z,
             'stage': stage,
             'progress': progress
         }
 
     def create_gpr_input_file(self, void_params: Dict, filename: str) -> str:
         """
-        Generate gprMax input file (.in)
+        Generate gprMax input file (.in) for B-scan
 
         Args:
             void_params: Void parameters
@@ -117,20 +145,54 @@ class VoidEvolutionSimulator:
         # Discretization (dx)
         dx = self.spatial_resolution
 
-        # Calculate layer positions (top to bottom)
-        # Z-coordinate is height from bottom
-        z_top = domain_z
-        z_surface_asphalt_bottom = z_top - self.surface_asphalt_thickness
-        z_base_asphalt_bottom = z_surface_asphalt_bottom - self.base_asphalt_thickness
-        z_upper_subbase_bottom = z_base_asphalt_bottom - self.upper_subbase_thickness
-        z_lower_subbase_bottom = z_upper_subbase_bottom - self.lower_subbase_thickness
-        z_subgrade_bottom = z_lower_subbase_bottom - self.subgrade_thickness
+        # Calculate layer positions
+        # z=0 is road surface (antenna position), positive z goes downward into road
+        z_road_surface = 0.0  # Road surface level (antenna position)
 
-        content = f"""#title: Road void evolution stage {void_params['stage']}
-#domain: {domain_x} {domain_y} {domain_z}
+        # Air layer extends downward (negative direction from road surface)
+        z_air_bottom = z_road_surface - self.air_thickness
+
+        # Road layers going downward from surface (positive z direction)
+        z_surface_asphalt_bottom = z_road_surface + self.surface_asphalt_thickness
+        z_base_asphalt_bottom = z_surface_asphalt_bottom + self.base_asphalt_thickness
+        z_upper_subbase_bottom = z_base_asphalt_bottom + self.upper_subbase_thickness
+        z_lower_subbase_bottom = z_upper_subbase_bottom + self.lower_subbase_thickness
+        z_subgrade_bottom = z_lower_subbase_bottom + self.subgrade_thickness  # Domain bottom
+
+        # Calculate B-scan parameters
+        # Convert ratio to absolute position
+        tx_start_x = self.scan_start_x_ratio * domain_x
+        tx_end_x = self.scan_end_x_ratio * domain_x
+        tx_y = domain_y / 2
+        tx_z = 0.0  # At road surface level
+
+        # Calculate step size for B-scan
+        scan_length = tx_end_x - tx_start_x
+        step_size = scan_length / (self.num_traces - 1) if self.num_traces > 1 else 0
+
+        # Domain coordinates (gprMax requires positive values starting from 0)
+        # We need to shift everything so the air layer bottom is at z=0
+        z_offset = abs(z_air_bottom)  # Offset to make air bottom at z=0
+
+        # Apply offset to all z coordinates
+        z_domain_bottom = z_offset + z_air_bottom  # Should be 0.0
+        z_air_top = z_offset + z_road_surface  # Road surface after offset
+        z_surface_asphalt_top = z_air_top
+        z_base_asphalt_top = z_offset + z_surface_asphalt_bottom
+        z_upper_subbase_top = z_offset + z_base_asphalt_bottom
+        z_lower_subbase_top = z_offset + z_upper_subbase_bottom
+        z_subgrade_top = z_offset + z_lower_subbase_bottom
+        z_domain_top = z_offset + z_subgrade_bottom  # Domain top
+
+        # Antenna at road surface (z=0 in logical coordinates, z_air_top after offset)
+        antenna_z = z_air_top
+
+        content = f"""#title: Road void evolution stage {void_params['stage']} (B-scan)
+#domain: {domain_x} {domain_y} {z_domain_top}
 #dx_dy_dz: {dx} {dx} {dx}
 #time_window: {self.time_window}e-9
 
+#material: {self.materials['air']} 0 1 0 air
 #material: {self.materials['surface_asphalt']} 0.01 1 0 surface_asphalt
 #material: {self.materials['base_asphalt']} 0.01 1 0 base_asphalt
 #material: {self.materials['upper_subbase']} 0.02 1 0 upper_subbase
@@ -138,23 +200,23 @@ class VoidEvolutionSimulator:
 #material: {self.materials['subgrade']} 0.05 1 0 subgrade
 #material: {self.materials['void']} 0 1 0 void
 
-#box: 0 0 {z_surface_asphalt_bottom} {domain_x} {domain_y} {z_top} surface_asphalt
-#box: 0 0 {z_base_asphalt_bottom} {domain_x} {domain_y} {z_surface_asphalt_bottom} base_asphalt
-#box: 0 0 {z_upper_subbase_bottom} {domain_x} {domain_y} {z_base_asphalt_bottom} upper_subbase
-#box: 0 0 {z_lower_subbase_bottom} {domain_x} {domain_y} {z_upper_subbase_bottom} lower_subbase
-#box: 0 0 {z_subgrade_bottom} {domain_x} {domain_y} {z_lower_subbase_bottom} subgrade
+#box: 0 0 {z_domain_bottom} {domain_x} {domain_y} {z_air_top} air
+#box: 0 0 {z_surface_asphalt_top} {domain_x} {domain_y} {z_base_asphalt_top} surface_asphalt
+#box: 0 0 {z_base_asphalt_top} {domain_x} {domain_y} {z_upper_subbase_top} base_asphalt
+#box: 0 0 {z_upper_subbase_top} {domain_x} {domain_y} {z_lower_subbase_top} upper_subbase
+#box: 0 0 {z_lower_subbase_top} {domain_x} {domain_y} {z_subgrade_top} lower_subbase
+#box: 0 0 {z_subgrade_top} {domain_x} {domain_y} {z_domain_top} subgrade
 
-#cylinder: {void_params['center_x']} {void_params['center_y']} {void_params['center_z']} {void_params['center_x']} {void_params['center_y']} {void_params['center_z'] + void_params['size_z']} {void_params['size_x']/2} void
+#box: {void_params['center_x'] - void_params['size_x']/2} {void_params['center_y'] - void_params['size_y']/2} {z_offset + void_params['center_z']} {void_params['center_x'] + void_params['size_x']/2} {void_params['center_y'] + void_params['size_y']/2} {z_offset + void_params['center_z'] + void_params['size_z']} void
 
 #waveform: ricker 1 {self.frequency}e6 my_ricker
-#hertzian_dipole: z {domain_x/2} {domain_y/2} {z_top - 0.05} my_ricker
+#hertzian_dipole: z {tx_start_x} {tx_y} {antenna_z} my_ricker
+#rx: {tx_start_x} {tx_y} {antenna_z}
 
-#rx: {domain_x/2} {domain_y/2} {z_top - 0.05}
+#src_steps: {step_size} 0 0
+#rx_steps: {step_size} 0 0
 
-#src_steps: {dx} 0 0
-#rx_steps: {dx} 0 0
-
-#geometry_view: 0 0 0 {domain_x} {domain_y} {domain_z} {dx} {dx} {dx} geometry_stage_{void_params['stage']} n
+#geometry_view: 0 0 0 {domain_x} {domain_y} {domain_z} {dx} {dx} {dx} geometry_stage_{void_params['stage']} f
 """
 
         with open(filepath, 'w') as f:

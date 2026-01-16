@@ -25,12 +25,6 @@ RUN pip config set global.timeout 600 && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# GPU support (optional - when CUDA is available)
-# pycuda requires CUDA Toolkit, so install conditionally
-# Note: NVIDIA GPU is typically not available on ARM64 architecture
-# Try individual installation even though environment markers are in requirements.txt
-RUN pip install --no-cache-dir pycuda || echo "Warning: pycuda installation failed (GPU may not be available)"
-
 # Clone gprMax
 RUN git clone https://github.com/gprMax/gprMax.git /tmp/gprMax
 

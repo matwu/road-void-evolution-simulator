@@ -5,7 +5,8 @@
       "Bash(tree:*)",
       "Bash(wc:*)",
       "Bash(docker-compose build:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(python:*)"
     ]
   }
 }

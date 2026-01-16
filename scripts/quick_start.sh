@@ -20,13 +20,13 @@ docker-compose up -d
 # 3. Create directories
 echo ""
 echo "[Step 3/4] Creating directories..."
-docker-compose exec -T gprmax mkdir -p data/simulations
-docker-compose exec -T gprmax mkdir -p outputs
+docker-compose exec -T road-void-evolution-simulator mkdir -p data/simulations
+docker-compose exec -T road-void-evolution-simulator mkdir -p outputs
 
 # 4. Generate simulation data
 echo ""
 echo "[Step 4/4] Generating simulation data..."
-docker-compose exec -T gprmax python src/data_generation/gpr_simulator.py
+docker-compose exec -T road-void-evolution-simulator python src/data_generation/gpr_simulator.py
 
 echo ""
 echo "=========================================="
@@ -35,8 +35,8 @@ echo "=========================================="
 echo ""
 echo "Next steps:"
 echo "  1. Run simulations:"
-echo "     docker-compose exec gprmax bash scripts/run_simulation.sh"
+echo "     docker-compose exec road-void-evolution-simulator bash scripts/run_simulation.sh"
 echo ""
 echo "To enter the container:"
-echo "  docker-compose exec gprmax /bin/bash"
+echo "  docker-compose exec road-void-evolution-simulator /bin/bash"
 echo ""
