@@ -62,14 +62,38 @@ class VoidEvolutionSimulator:
                         self.lower_subbase_thickness +
                         self.subgrade_thickness)
 
-    def generate_void_parameters(self, stage: int, total_stages: int, sequence_seed: int = None) -> Dict:
+    def generate_initial_void_parameters(self, sequence_seed: int = None) -> Dict:
         """
-        Generate void time-evolution parameters
+        Generate initial void parameters for a sequence
+
+        Args:
+            sequence_seed: Seed to fix initial values per sequence
+
+        Returns:
+            Dictionary of initial void parameters (all ratios 0-1)
+        """
+        if sequence_seed is not None:
+            np.random.seed(sequence_seed)
+
+        return {
+            'x_position_ratio': np.random.uniform(*self.void_initial_x_position_range),
+            'y_position_ratio': np.random.uniform(*self.void_initial_y_position_range),
+            'depth_ratio': np.random.uniform(*self.void_initial_depth_ratio_range),
+            'size_x_ratio': np.random.uniform(*self.void_initial_size_x_ratio_range),
+            'size_y_ratio': np.random.uniform(*self.void_initial_size_y_ratio_range),
+            'size_z_ratio': np.random.uniform(*self.void_initial_size_z_ratio_range),
+            'max_growth_rate': np.random.uniform(*self.void_growth_rate_range),
+            'max_upward_movement_ratio': np.random.uniform(*self.void_upward_movement_ratio_range)
+        }
+
+    def generate_void_parameters(self, stage: int, total_stages: int, initial_params: Dict) -> Dict:
+        """
+        Generate void time-evolution parameters for a specific stage
 
         Args:
             stage: Current stage (0 is initial, total_stages-1 is final)
             total_stages: Total number of stages
-            sequence_seed: Seed to fix initial values per sequence
+            initial_params: Initial void parameters from generate_initial_void_parameters()
 
         Returns:
             Void parameter dictionary with absolute coordinates
@@ -77,41 +101,46 @@ class VoidEvolutionSimulator:
         # Progress (0.0 ~ 1.0)
         progress = stage / (total_stages - 1) if total_stages > 1 else 0
 
-        # Generate consistent initial parameters within a sequence
-        if sequence_seed is not None and stage == 0:
-            np.random.seed(sequence_seed)
-
         # Calculate road depth (excluding air layer)
         road_depth = self.domain_z - self.air_thickness
 
-        # Initial position and size ratios (get range from config)
-        if stage == 0:
-            # For stage 0, generate new initial values as ratios
-            self._initial_x_position_ratio = np.random.uniform(*self.void_initial_x_position_range)
-            self._initial_y_position_ratio = np.random.uniform(*self.void_initial_y_position_range)
-            self._initial_depth_ratio = np.random.uniform(*self.void_initial_depth_ratio_range)
-            self._initial_size_x_ratio = np.random.uniform(*self.void_initial_size_x_ratio_range)
-            self._initial_size_y_ratio = np.random.uniform(*self.void_initial_size_y_ratio_range)
-            self._initial_size_z_ratio = np.random.uniform(*self.void_initial_size_z_ratio_range)
-            self._max_growth_rate = np.random.uniform(*self.void_growth_rate_range)
-            self._max_upward_movement_ratio = np.random.uniform(*self.void_upward_movement_ratio_range)
-
         # Growth rate (simulate non-linear growth)
-        growth_rate = 1.0 + progress ** 1.5 * (self._max_growth_rate - 1.0)
+        growth_rate = 1.0 + progress ** 1.5 * (initial_params['max_growth_rate'] - 1.0)
 
         # Upward movement as ratio of initial depth
-        upward_movement_ratio = progress * self._max_upward_movement_ratio
+        upward_movement_ratio = progress * initial_params['max_upward_movement_ratio']
 
         # Convert ratios to absolute coordinates
-        center_x = self._initial_x_position_ratio * self.domain_x
-        center_y = self._initial_y_position_ratio * self.domain_y
-        initial_depth = self._initial_depth_ratio * road_depth
+        center_x = initial_params['x_position_ratio'] * self.domain_x
+        center_y = initial_params['y_position_ratio'] * self.domain_y
+        initial_depth = initial_params['depth_ratio'] * road_depth
         upward_movement = upward_movement_ratio * initial_depth
         center_z = initial_depth - upward_movement  # Rising toward surface
 
-        size_x = self._initial_size_x_ratio * self.domain_x * growth_rate
-        size_y = self._initial_size_y_ratio * self.domain_y * growth_rate
-        size_z = self._initial_size_z_ratio * road_depth * growth_rate ** 0.8
+        size_x = initial_params['size_x_ratio'] * self.domain_x * growth_rate
+        size_y = initial_params['size_y_ratio'] * self.domain_y * growth_rate
+        size_z = initial_params['size_z_ratio'] * road_depth * growth_rate ** 0.8
+
+        # Ensure void stays within domain bounds
+        # Adjust center position if void extends beyond domain
+        half_size_x = size_x / 2
+        half_size_y = size_y / 2
+
+        if center_x - half_size_x < 0:
+            center_x = half_size_x
+        elif center_x + half_size_x > self.domain_x:
+            center_x = self.domain_x - half_size_x
+
+        if center_y - half_size_y < 0:
+            center_y = half_size_y
+        elif center_y + half_size_y > self.domain_y:
+            center_y = self.domain_y - half_size_y
+
+        # Ensure void stays within road depth (doesn't extend above surface or below bottom)
+        if center_z < 0:
+            center_z = 0
+        elif center_z + size_z > road_depth:
+            center_z = road_depth - size_z
 
         return {
             'center_x': center_x,
@@ -124,13 +153,14 @@ class VoidEvolutionSimulator:
             'progress': progress
         }
 
-    def create_gpr_input_file(self, void_params: Dict, filename: str) -> str:
+    def create_gpr_input_file(self, void_params: Dict, filename: str, sequence_id: int = 0) -> str:
         """
         Generate gprMax input file (.in) for B-scan
 
         Args:
             void_params: Void parameters
             filename: Output filename
+            sequence_id: Sequence ID for geometry view naming
 
         Returns:
             Generated file path
@@ -216,7 +246,7 @@ class VoidEvolutionSimulator:
 #src_steps: {step_size} 0 0
 #rx_steps: {step_size} 0 0
 
-#geometry_view: 0 0 0 {domain_x} {domain_y} {domain_z} {dx} {dx} {dx} geometry_stage_{void_params['stage']} f
+#geometry_view: 0 0 0 {domain_x} {domain_y} {domain_z} {dx} {dx} {dx} geometry_seq_{sequence_id:04d}_stage_{void_params['stage']:02d} f
 """
 
         with open(filepath, 'w') as f:
@@ -245,13 +275,16 @@ class VoidEvolutionSimulator:
             print(f"\nSequence {seq_id + 1}/{num_sequences}")
             sequence_metadata = []
 
+            # Generate initial void parameters for this sequence
+            initial_params = self.generate_initial_void_parameters(sequence_seed=seq_id)
+
             for stage in range(stages_per_sequence):
                 # Use consistent initial parameters per sequence
-                void_params = self.generate_void_parameters(stage, stages_per_sequence, sequence_seed=seq_id)
+                void_params = self.generate_void_parameters(stage, stages_per_sequence, initial_params)
 
                 # Generate gprMax input file
                 input_filename = f"seq_{seq_id:04d}_stage_{stage:02d}.in"
-                input_file = self.create_gpr_input_file(void_params, input_filename)
+                input_file = self.create_gpr_input_file(void_params, input_filename, sequence_id=seq_id)
 
                 sequence_metadata.append({
                     'sequence_id': seq_id,
