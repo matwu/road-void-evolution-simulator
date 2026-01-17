@@ -101,53 +101,70 @@ def plot_ascan(data: dict, rx_name: str = 'rx1', component: str = 'Ez',
     plt.close()
 
 
-def plot_bscan(output_files: list, component: str = 'Ez',
+def plot_bscan(output_file_path: str, component: str = 'Ez',
                output_file: str = None, title: str = None):
     """
-    B-scan plot (multiple traces)
+    B-scan plot (multiple traces from a single .out file)
 
     Args:
-        output_files: List of .out files
+        output_file_path: Path to .out file containing multiple traces
         component: Electric/magnetic field component
         output_file: Output filename
         title: Plot title
     """
-    traces = []
+    data = load_gpr_output(output_file_path)
 
-    for out_file in output_files:
-        data = load_gpr_output(out_file)
+    # Get all receiver names (rx1, rx2, rx3, ...)
+    rx_names = sorted([k for k in data.keys() if k.startswith('rx')])
 
-        # Get first receiver data
-        rx_name = list(data.keys())[0] if data else None
-        if rx_name and rx_name.startswith('rx'):
-            if component in data[rx_name]:
-                traces.append(data[rx_name][component])
-
-    if not traces:
-        print("Error: No data found")
+    if not rx_names:
+        print("Error: No receiver data found")
         return
 
-    # Create B-scan data
+    traces = []
+    for rx_name in rx_names:
+        if component in data[rx_name]:
+            traces.append(data[rx_name][component])
+        else:
+            print(f"Warning: Component {component} not found in {rx_name}")
+
+    if not traces:
+        print(f"Error: No data found for component {component}")
+        return
+
+    # Create B-scan data (traces x time_samples)
     bscan = np.array(traces)
+
+    # Get time information
+    if 'dt' in data and 'iterations' in data:
+        dt = data['dt']
+        time = np.arange(bscan.shape[1]) * dt * 1e9  # ns
+        time_label = 'Time (ns)'
+    else:
+        time = np.arange(bscan.shape[1])
+        time_label = 'Time Sample'
 
     # Plot
     fig, ax = plt.subplots(figsize=(14, 8))
 
-    # Colormap
+    # Colormap with proper extent
     im = ax.imshow(
         bscan.T,
         aspect='auto',
         cmap='seismic',
         interpolation='bilinear',
-        extent=[0, len(traces), bscan.shape[1], 0]
+        extent=[0, len(traces), time[-1], time[0]]
     )
 
     ax.set_xlabel('Trace Number', fontsize=12)
-    ax.set_ylabel('Time Sample', fontsize=12)
-    ax.set_title(title or f'B-scan: {component}', fontsize=14)
+    ax.set_ylabel(time_label, fontsize=12)
+    ax.set_title(title or f'B-scan: {component} ({len(traces)} traces)', fontsize=14)
 
     cbar = plt.colorbar(im, ax=ax)
     cbar.set_label(f'{component} Field Amplitude', fontsize=11)
+
+    # Add grid
+    ax.grid(True, alpha=0.3, linestyle='--')
 
     plt.tight_layout()
 
@@ -288,20 +305,40 @@ def main():
             sys.exit(1)
 
     elif args.mode == 'bscan':
-        if input_path.is_dir():
+        if input_path.is_file():
+            # Single file mode
+            plot_bscan(
+                str(input_path),
+                component=args.component,
+                output_file=args.output,
+                title=args.title
+            )
+        elif input_path.is_dir():
+            # Directory mode: process all .out files
             out_files = sorted(input_path.glob('*.out'))
             if not out_files:
                 print(f"Error: No .out files found in {input_path}")
                 sys.exit(1)
 
-            plot_bscan(
-                [str(f) for f in out_files],
-                component=args.component,
-                output_file=args.output,
-                title=args.title
-            )
+            # Create output directory
+            output_dir = Path(args.output) if args.output else input_path / 'plots'
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            print(f"Processing {len(out_files)} files...")
+            for out_file in out_files:
+                output_filename = output_dir / f"{out_file.stem}_bscan_{args.component}.png"
+                print(f"  {out_file.name} -> {output_filename.name}")
+
+                plot_bscan(
+                    str(out_file),
+                    component=args.component,
+                    output_file=str(output_filename),
+                    title=f"{out_file.stem} - {args.component}"
+                )
+
+            print(f"\nAll plots saved to {output_dir}")
         else:
-            print("Error: B-scan mode requires a directory containing .out files")
+            print("Error: Input must be a .out file or directory")
             sys.exit(1)
 
     elif args.mode == 'all':

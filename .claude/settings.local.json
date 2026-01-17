@@ -6,7 +6,11 @@
       "Bash(wc:*)",
       "Bash(docker-compose build:*)",
       "Bash(cat:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(for stage in 00 05 10 15 19)",
+      "Bash(do)",
+      "Bash(done)"
     ]
   }
 }
