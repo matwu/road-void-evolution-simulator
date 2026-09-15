@@ -72,18 +72,42 @@ class VoidEvolutionSimulator:
         Returns:
             Dictionary of initial void parameters (all ratios 0-1)
         """
-        if sequence_seed is not None:
-            np.random.seed(sequence_seed)
+        # Use a local RNG instead of np.random.seed(), which mutates NumPy's global
+        # random state and would otherwise correlate with (or be disrupted by) any
+        # other code drawing from np.random between calls.
+        rng = np.random.default_rng(sequence_seed)
+
+        max_growth_rate = rng.uniform(*self.void_growth_rate_range)
+        size_x_ratio = rng.uniform(*self.void_initial_size_x_ratio_range)
+        size_y_ratio = rng.uniform(*self.void_initial_size_y_ratio_range)
+        size_z_ratio = rng.uniform(*self.void_initial_size_z_ratio_range)
+
+        # Cap sizes so the fully-grown void can never exceed the domain. This lets the
+        # x/y center stay fixed for the whole sequence instead of being nudged inward
+        # stage by stage, which previously showed up as spurious lateral drift.
+        size_x_ratio = min(size_x_ratio, 1.0 / max_growth_rate)
+        size_y_ratio = min(size_y_ratio, 1.0 / max_growth_rate)
+        size_z_ratio = min(size_z_ratio, 1.0 / max_growth_rate ** 0.8)
+
+        def position_range_for_size(position_range, final_size_ratio):
+            """Shrink a position ratio range so the fully-grown void's edges stay within [0, 1]."""
+            half = final_size_ratio / 2
+            low = max(position_range[0], half)
+            high = min(position_range[1], 1.0 - half)
+            return (low, high) if low <= high else (0.5, 0.5)
+
+        x_range = position_range_for_size(self.void_initial_x_position_range, size_x_ratio * max_growth_rate)
+        y_range = position_range_for_size(self.void_initial_y_position_range, size_y_ratio * max_growth_rate)
 
         return {
-            'x_position_ratio': np.random.uniform(*self.void_initial_x_position_range),
-            'y_position_ratio': np.random.uniform(*self.void_initial_y_position_range),
-            'depth_ratio': np.random.uniform(*self.void_initial_depth_ratio_range),
-            'size_x_ratio': np.random.uniform(*self.void_initial_size_x_ratio_range),
-            'size_y_ratio': np.random.uniform(*self.void_initial_size_y_ratio_range),
-            'size_z_ratio': np.random.uniform(*self.void_initial_size_z_ratio_range),
-            'max_growth_rate': np.random.uniform(*self.void_growth_rate_range),
-            'max_upward_movement_ratio': np.random.uniform(*self.void_upward_movement_ratio_range)
+            'x_position_ratio': rng.uniform(*x_range),
+            'y_position_ratio': rng.uniform(*y_range),
+            'depth_ratio': rng.uniform(*self.void_initial_depth_ratio_range),
+            'size_x_ratio': size_x_ratio,
+            'size_y_ratio': size_y_ratio,
+            'size_z_ratio': size_z_ratio,
+            'max_growth_rate': max_growth_rate,
+            'max_upward_movement_ratio': rng.uniform(*self.void_upward_movement_ratio_range)
         }
 
     def generate_void_parameters(self, stage: int, total_stages: int, initial_params: Dict) -> Dict:
@@ -96,7 +120,8 @@ class VoidEvolutionSimulator:
             initial_params: Initial void parameters from generate_initial_void_parameters()
 
         Returns:
-            Void parameter dictionary with absolute coordinates
+            Void parameter dictionary with absolute coordinates. center_x/y/z are true
+            box centers, matching how create_gpr_input_file builds the #box extents.
         """
         # Progress (0.0 ~ 1.0)
         progress = stage / (total_stages - 1) if total_stages > 1 else 0
@@ -110,47 +135,39 @@ class VoidEvolutionSimulator:
         # Upward movement as ratio of initial depth
         upward_movement_ratio = progress * initial_params['max_upward_movement_ratio']
 
-        # Convert ratios to absolute coordinates
+        # x/y center is fixed for the whole sequence; generate_initial_void_parameters
+        # already guarantees it stays in-domain even at the largest (final-stage) size.
         center_x = initial_params['x_position_ratio'] * self.domain_x
         center_y = initial_params['y_position_ratio'] * self.domain_y
+
+        # depth_ratio is the void's *center* depth ratio (0=surface, 1=bottom), consistent
+        # with how x/y positions are centers. It rises toward the surface over the sequence.
         initial_depth = initial_params['depth_ratio'] * road_depth
         upward_movement = upward_movement_ratio * initial_depth
-        center_z = initial_depth - upward_movement  # Rising toward surface
+        center_z = initial_depth - upward_movement
 
         size_x = initial_params['size_x_ratio'] * self.domain_x * growth_rate
         size_y = initial_params['size_y_ratio'] * self.domain_y * growth_rate
         size_z = initial_params['size_z_ratio'] * road_depth * growth_rate ** 0.8
 
-        # Ensure void stays within domain bounds
-        # Adjust center position if void extends beyond domain
-        half_size_x = size_x / 2
-        half_size_y = size_y / 2
-
-        if center_x - half_size_x < 0:
-            center_x = half_size_x
-        elif center_x + half_size_x > self.domain_x:
-            center_x = self.domain_x - half_size_x
-
-        if center_y - half_size_y < 0:
-            center_y = half_size_y
-        elif center_y + half_size_y > self.domain_y:
-            center_y = self.domain_y - half_size_y
-
-        # Ensure void stays within road depth (doesn't extend above surface or below bottom)
-        if center_z < 0:
-            center_z = 0
-        elif center_z + size_z > road_depth:
-            center_z = road_depth - size_z
+        # Safety-net clamp, applied independently per axis so a correction on one edge
+        # can never mask a violation on the opposite edge (unlike the previous if/elif
+        # chain, which could "fix" the near side and leave the far side out of bounds).
+        center_x = np.clip(center_x, size_x / 2, self.domain_x - size_x / 2)
+        center_y = np.clip(center_y, size_y / 2, self.domain_y - size_y / 2)
+        center_z = np.clip(center_z, size_z / 2, road_depth - size_z / 2)
 
         return {
-            'center_x': center_x,
-            'center_y': center_y,
-            'center_z': center_z,
-            'size_x': size_x,
-            'size_y': size_y,
-            'size_z': size_z,
+            # Cast to native float: np.clip/rng.uniform yield numpy scalars, which
+            # yaml.safe_load (used to read metadata.yaml back) cannot deserialize.
+            'center_x': float(center_x),
+            'center_y': float(center_y),
+            'center_z': float(center_z),
+            'size_x': float(size_x),
+            'size_y': float(size_y),
+            'size_z': float(size_z),
             'stage': stage,
-            'progress': progress
+            'progress': float(progress)
         }
 
     def create_gpr_input_file(self, void_params: Dict, filename: str, sequence_id: int = 0) -> str:
@@ -237,7 +254,7 @@ class VoidEvolutionSimulator:
 #box: 0 0 {z_lower_subbase_top} {domain_x} {domain_y} {z_subgrade_top} lower_subbase
 #box: 0 0 {z_subgrade_top} {domain_x} {domain_y} {z_domain_top} subgrade
 
-#box: {void_params['center_x'] - void_params['size_x']/2} {void_params['center_y'] - void_params['size_y']/2} {z_offset + void_params['center_z']} {void_params['center_x'] + void_params['size_x']/2} {void_params['center_y'] + void_params['size_y']/2} {z_offset + void_params['center_z'] + void_params['size_z']} void
+#box: {void_params['center_x'] - void_params['size_x']/2} {void_params['center_y'] - void_params['size_y']/2} {z_offset + void_params['center_z'] - void_params['size_z']/2} {void_params['center_x'] + void_params['size_x']/2} {void_params['center_y'] + void_params['size_y']/2} {z_offset + void_params['center_z'] + void_params['size_z']/2} void
 
 #waveform: ricker 1 {self.frequency}e6 my_ricker
 #hertzian_dipole: z {tx_start_x} {tx_y} {antenna_z} my_ricker
